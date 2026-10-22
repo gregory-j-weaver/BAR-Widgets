@@ -47,7 +47,7 @@ local mode = MODE_OFF
 local drawing = false
 local currentStroke = nil
 local canvas = {}
-local blueprints = {}
+local stamps = {}
 local selected = 1
 local pasteFacing = 0
 local lastSampleDistSq = 9 -- capture finely; simplification trims the excess
@@ -185,8 +185,8 @@ local function simplifyStroke(stroke, tol)
 	return out
 end
 
--- Simplify a blueprint once and reuse it (preview + stamp). Weak keys so
--- deleted blueprints drop out; never written to the save file.
+-- Simplify a stamp once and reuse it (preview + stamp). Weak keys so
+-- deleted stamps drop out; never written to the save file.
 local simplifiedCache = setmetatable({}, { __mode = "k" })
 
 local function simplifiedStrokes(bp)
@@ -251,23 +251,23 @@ local function tryDecode(raw)
 	end
 end
 
-local function loadBlueprints()
+local function loadStamps()
 	if not VFS.FileExists(CONFIG_PATH) then
 		return
 	end
 	local raw = VFS.LoadFile(CONFIG_PATH)
 	local data = raw and tryDecode(raw)
 	if type(data) == "table" then
-		blueprints = data
+		stamps = data
 	end
 end
 
-local function saveBlueprints()
+local function saveStamps()
 	local encoded
 	if Json and Json.encode then
-		encoded = Json.encode(blueprints)
+		encoded = Json.encode(stamps)
 	elseif WG and WG.json and WG.json.encode then
-		encoded = WG.json.encode(blueprints)
+		encoded = WG.json.encode(stamps)
 	end
 	if not encoded then
 		spEcho("[Stamp] could not encode save file")
@@ -317,19 +317,19 @@ local function doSave()
 		spEcho("[Stamp] nothing to save")
 		return
 	end
-	blueprints[#blueprints + 1] = {
-		name = "drawing " .. tostring(#blueprints + 1),
+	stamps[#stamps + 1] = {
+		name = "drawing " .. tostring(#stamps + 1),
 		strokes = normalizeStrokes(canvas),
 	}
-	selected = #blueprints
+	selected = #stamps
 	canvas = {}
-	saveBlueprints()
+	saveStamps()
 	mode = MODE_OFF
 	spEcho("[Stamp] saved #" .. selected .. " — Ctrl+Alt+B to paste")
 end
 
 local function doPaste()
-	if #blueprints == 0 then
+	if #stamps == 0 then
 		spEcho("[Stamp] no saved stamps")
 		return
 	end
@@ -338,20 +338,20 @@ local function doPaste()
 end
 
 local function doNext()
-	if #blueprints == 0 then
+	if #stamps == 0 then
 		return
 	end
-	selected = selected % #blueprints + 1
+	selected = selected % #stamps + 1
 	spEcho("[Stamp] #" .. selected)
 end
 
 local function doPrev()
-	if #blueprints == 0 then
+	if #stamps == 0 then
 		return
 	end
 	selected = selected - 1
 	if selected < 1 then
-		selected = #blueprints
+		selected = #stamps
 	end
 	spEcho("[Stamp] #" .. selected)
 end
@@ -368,23 +368,23 @@ local function doClear()
 end
 
 local function doDelete()
-	if #blueprints == 0 then
+	if #stamps == 0 then
 		spEcho("[Stamp] no saved stamps")
 		return
 	end
-	table.remove(blueprints, selected)
-	if selected > #blueprints then
-		selected = math.max(#blueprints, 1)
+	table.remove(stamps, selected)
+	if selected > #stamps then
+		selected = math.max(#stamps, 1)
 	end
-	saveBlueprints()
-	spEcho("[Stamp] deleted. " .. #blueprints .. " left, selected #" .. selected)
+	saveStamps()
+	spEcho("[Stamp] deleted. " .. #stamps .. " left, selected #" .. selected)
 end
 
 function widget:Initialize()
 	if not Json and VFS.FileExists("LuaUI/Include/json.lua") then
 		VFS.Include("LuaUI/Include/json.lua")
 	end
-	loadBlueprints()
+	loadStamps()
 
 	local AH = widgetHandler.actionHandler
 	local function add(name, fn)
@@ -402,6 +402,8 @@ function widget:Initialize()
 	add("stamp_clear", doClear)
 	add("stamp_delete", doDelete)
 
+	-- manifest.json "keybindings" lists these for the keybind editor, but those
+	-- defaults are not applied for every install, so bind them here too.
 	-- sc_ is the form BAR actually matches. Do not bind plain Alt+C.
 	Spring.SendCommands({
 		"bind      Ctrl+Alt+d     stamp_toggle",
@@ -490,7 +492,7 @@ function widget:MousePress(mx, my, button)
 		return true
 	end
 	if mode == MODE_PASTE then
-		local bp = blueprints[selected]
+		local bp = stamps[selected]
 		if not bp then
 			return false
 		end
@@ -532,12 +534,12 @@ function widget:DrawWorld()
 	if currentStroke then
 		drawStrokeList({ currentStroke }, 1.0, 0.95, 0.2, 1)
 	end
-	if mode == MODE_PASTE and blueprints[selected] then
+	if mode == MODE_PASTE and stamps[selected] then
 		local mx, my = spGetMouseState()
 		local x, _, z = worldPos(mx, my)
 		if x then
 			-- preview shows exactly what will be stamped
-			drawStrokeList(placedStrokes(simplifiedStrokes(blueprints[selected]), x, z, pasteFacing), 0.2, 1.0, 0.35, 0.9)
+			drawStrokeList(placedStrokes(simplifiedStrokes(stamps[selected]), x, z, pasteFacing), 0.2, 1.0, 0.35, 0.9)
 		end
 	end
 end
@@ -550,7 +552,7 @@ function widget:DrawScreen()
 	if mode == MODE_DRAW then
 		label = "DRAW  strokes=" .. #canvas .. "   Ctrl+Alt+C save   RMB cancel"
 	elseif mode == MODE_PASTE then
-		label = "PASTE #" .. selected .. "/" .. #blueprints .. "  " .. (pasteFacing * 90) .. "deg   LMB stamp"
+		label = "PASTE #" .. selected .. "/" .. #stamps .. "  " .. (pasteFacing * 90) .. "deg   LMB stamp"
 	end
 	gl.Color(1, 1, 1, 1)
 	gl.Text(label, 20, 80, 16, "o")
