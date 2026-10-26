@@ -5,13 +5,15 @@ A widget for Beyond All Reason that allows you to make a drawing and save it for
  Draw on the map, save the strokes, stamp them as real backtick map marks.
 
    Ctrl+Alt+D   draw mode (LMB drag)
-   Ctrl+Alt+C   save strokes as a stamp
+   Ctrl+Alt+Z   clear unsaved strokes
+   Ctrl+Alt+T   save strokes as a stamp
    Ctrl+Alt+B   paste mode (LMB stamps real map marks)
    Ctrl+Alt+[ ] previous / next stamp
-   Ctrl+Alt+R   rotate paste 90 degrees
-   Ctrl+Alt+X   clear unsaved strokes
-   Ctrl+Alt+Q   delete selected saved stamp
-   RMB          cancel draw/paste mode
+   [ ]          rotate counter-clockwise / clockwise (paste mode only,
+                uses the game's own build-facing keys)
+   Ctrl+Alt+Y   delete selected saved stamp
+   Ctrl+Alt+X   cancel all stamping in progress
+   RMB / Esc    cancel draw/paste mode
 
 ## Safety
 Only draws, does not change any settings.

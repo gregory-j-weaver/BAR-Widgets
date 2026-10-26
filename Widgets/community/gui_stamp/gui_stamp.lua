@@ -2,16 +2,19 @@
 -- Draw on the map, save the strokes, stamp them as real backtick map marks.
 -- Beyond All Reason is a free open source RTS.
 --
--- Does not touch Alt+C / Alt+B. Those stay the stock building-blueprint binds.
+-- Keys mirror BAR's building-blueprint keys with Ctrl added. The stock Alt
+-- blueprint binds are never touched.
 --
 --   Ctrl+Alt+D   draw mode (LMB drag)
---   Ctrl+Alt+C   save strokes as a stamp
+--   Ctrl+Alt+Z   clear unsaved strokes
+--   Ctrl+Alt+T   save strokes as a stamp
 --   Ctrl+Alt+B   paste mode (LMB stamps real map marks)
 --   Ctrl+Alt+[ ] previous / next stamp
---   Ctrl+Alt+R   rotate paste 90 degrees
---   Ctrl+Alt+X   clear unsaved strokes
---   Ctrl+Alt+Q   delete selected saved stamp
---   RMB          cancel draw/paste mode
+--   [ ]          rotate counter-clockwise / clockwise (paste mode only,
+--                uses the game's own build-facing keys)
+--   Ctrl+Alt+Y   delete selected saved stamp
+--   Ctrl+Alt+X   cancel all stamping in progress
+--   RMB / Esc    cancel draw/paste mode
 --
 -- Install: <BAR data>/LuaUI/Widgets/gui_stamp.lua
 -- Then: /luaui reload
@@ -309,7 +312,7 @@ local function doToggle()
 	mode = (mode == MODE_DRAW) and MODE_OFF or MODE_DRAW
 	drawing = false
 	currentStroke = nil
-	spEcho(mode == MODE_DRAW and "[Stamp] draw ON — LMB drag, then Ctrl+Alt+C" or "[Stamp] off")
+	spEcho(mode == MODE_DRAW and "[Stamp] draw ON — LMB drag, then Ctrl+Alt+T" or "[Stamp] off")
 end
 
 local function doSave()
@@ -356,9 +359,33 @@ local function doPrev()
 	spEcho("[Stamp] #" .. selected)
 end
 
-local function doRot()
+-- facing +1 turns the stamp counter-clockwise as seen from above
+-- (world z points down the screen).
+local function doExitMode()
+	mode = MODE_OFF
+	drawing = false
+	currentStroke = nil
+	spEcho("[Stamp] cancelled")
+end
+
+local function doRotCCW()
 	pasteFacing = (pasteFacing + 1) % 4
 	spEcho("[Stamp] facing " .. (pasteFacing * 90))
+end
+
+local function doRotCW()
+	pasteFacing = (pasteFacing + 3) % 4
+	spEcho("[Stamp] facing " .. (pasteFacing * 90))
+end
+
+local function doCancel()
+	local left = stampTail - stampHead + 1
+	stampQueue, stampHead, stampTail, stampBudget = {}, 1, 0, 0
+	if left > 0 then
+		spEcho("[Stamp] cancelled, " .. left .. " marks not sent")
+	else
+		spEcho("[Stamp] nothing stamping")
+	end
 end
 
 local function doClear()
@@ -398,30 +425,53 @@ function widget:Initialize()
 	add("stamp_paste", doPaste)
 	add("stamp_next", doNext)
 	add("stamp_prev", doPrev)
-	add("stamp_rot", doRot)
-	add("stamp_clear", doClear)
+	add("stamp_cancel", doCancel)
+	add("stamp_clear_strokes", doClear)
 	add("stamp_delete", doDelete)
+
+	-- Rotation uses the game's own build-facing action ([ / ] by default),
+	-- like blueprints do. Only consumed in paste mode; otherwise it falls
+	-- through to buildings and blueprints.
+	AH:AddAction(self, "buildfacing", function(_, _, args)
+		if mode ~= MODE_PASTE then
+			return false
+		end
+		local dir = args and args[1]
+		if dir == "inc" then
+			doRotCCW()
+			return true
+		elseif dir == "dec" then
+			doRotCW()
+			return true
+		end
+		return false
+	end, nil, "p")
 
 	-- manifest.json "keybindings" lists these for the keybind editor, but those
 	-- defaults are not applied for every install, so bind them here too.
 	-- sc_ is the form BAR actually matches. Do not bind plain Alt+C.
+	-- Actions were renamed (stamp_clear -> stamp_clear_strokes, rotate actions
+	-- removed) so binds left over from earlier versions point at nothing
+	-- instead of stealing Ctrl+Alt+X or Ctrl+Alt+[ ].
 	Spring.SendCommands({
 		"bind      Ctrl+Alt+d     stamp_toggle",
 		"bind      Ctrl+Alt+sc_d  stamp_toggle",
-		"bind      Ctrl+Alt+c     stamp_save",
-		"bind      Ctrl+Alt+sc_c  stamp_save",
+		"bind      Ctrl+Alt+t     stamp_save",
+		"bind      Ctrl+Alt+sc_t  stamp_save",
 		"bind      Ctrl+Alt+b     stamp_paste",
 		"bind      Ctrl+Alt+sc_b  stamp_paste",
-		"bind      Ctrl+Alt+]     stamp_next",
 		"bind      Ctrl+Alt+[     stamp_prev",
-		"bind      Ctrl+Alt+r     stamp_rot",
-		"bind      Ctrl+Alt+sc_r  stamp_rot",
-		"bind      Ctrl+Alt+x     stamp_clear",
-		"bind      Ctrl+Alt+sc_x  stamp_clear",
-		"bind      Ctrl+Alt+q     stamp_delete",
-		"bind      Ctrl+Alt+sc_q  stamp_delete",
+		"bind      Ctrl+Alt+sc_[  stamp_prev",
+		"bind      Ctrl+Alt+]     stamp_next",
+		"bind      Ctrl+Alt+sc_]  stamp_next",
+		"bind      Ctrl+Alt+x     stamp_cancel",
+		"bind      Ctrl+Alt+sc_x  stamp_cancel",
+		"bind      Ctrl+Alt+z     stamp_clear_strokes",
+		"bind      Ctrl+Alt+sc_z  stamp_clear_strokes",
+		"bind      Ctrl+Alt+y     stamp_delete",
+		"bind      Ctrl+Alt+sc_y  stamp_delete",
 	})
-	spEcho("[Stamp] loaded. Ctrl+Alt+D draw, Ctrl+Alt+C save, Ctrl+Alt+B paste. Alt+C is untouched.")
+	spEcho("[Stamp] loaded. Ctrl+Alt+D draw, Ctrl+Alt+T save, Ctrl+Alt+B paste, [ ] rotate, Ctrl+Alt+X cancel stamping.")
 end
 
 function widget:Shutdown()
@@ -431,15 +481,21 @@ function widget:Shutdown()
 	AH:RemoveAction(self, "stamp_paste", "p")
 	AH:RemoveAction(self, "stamp_next", "p")
 	AH:RemoveAction(self, "stamp_prev", "p")
-	AH:RemoveAction(self, "stamp_rot", "p")
-	AH:RemoveAction(self, "stamp_clear", "p")
+	AH:RemoveAction(self, "stamp_cancel", "p")
+	AH:RemoveAction(self, "buildfacing", "p")
+	AH:RemoveAction(self, "stamp_clear_strokes", "p")
 	AH:RemoveAction(self, "stamp_delete", "p")
 end
 
-local KEY_C, KEY_B, KEY_D = 99, 98, 100
-local KEY_R, KEY_X = 114, 120
+local KEY_ESC = 27
+local KEY_T, KEY_B, KEY_D = 116, 98, 100
+local KEY_X, KEY_Z, KEY_Y = 120, 122, 121
 
 function widget:KeyPress(key, mods, isRepeat, label)
+	if key == KEY_ESC and not isRepeat and mode ~= MODE_OFF then
+		doExitMode()
+		return true
+	end
 	if isRepeat or not mods.alt or not mods.ctrl or mods.meta then
 		return false
 	end
@@ -448,7 +504,7 @@ function widget:KeyPress(key, mods, isRepeat, label)
 		doToggle()
 		return true
 	end
-	if key == KEY_C or name == "c" then
+	if key == KEY_T or name == "t" then
 		doSave()
 		return true
 	end
@@ -456,15 +512,15 @@ function widget:KeyPress(key, mods, isRepeat, label)
 		doPaste()
 		return true
 	end
-	if key == KEY_R or name == "r" then
-		doRot()
+	if key == KEY_X or name == "x" then
+		doCancel()
 		return true
 	end
-	if key == KEY_X or name == "x" then
+	if key == KEY_Z or name == "z" then
 		doClear()
 		return true
 	end
-	if name == "q" then
+	if key == KEY_Y or name == "y" then
 		doDelete()
 		return true
 	end
@@ -473,10 +529,7 @@ end
 
 function widget:MousePress(mx, my, button)
 	if button == 3 and mode ~= MODE_OFF then
-		mode = MODE_OFF
-		drawing = false
-		currentStroke = nil
-		spEcho("[Stamp] cancelled")
+		doExitMode()
 		return true
 	end
 	if button ~= 1 then
@@ -550,7 +603,7 @@ function widget:DrawScreen()
 	end
 	local label = "Stamp strokes=" .. #canvas
 	if mode == MODE_DRAW then
-		label = "DRAW  strokes=" .. #canvas .. "   Ctrl+Alt+C save   RMB cancel"
+		label = "DRAW  strokes=" .. #canvas .. "   Ctrl+Alt+T save   RMB/Esc cancel"
 	elseif mode == MODE_PASTE then
 		label = "PASTE #" .. selected .. "/" .. #stamps .. "  " .. (pasteFacing * 90) .. "deg   LMB stamp"
 	end
