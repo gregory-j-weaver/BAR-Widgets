@@ -33,7 +33,7 @@ Display-only. It does not change sharing, conversion, or unit orders.
 
 ## Settings
 
-Open **Settings > Custom** and find **Stall Timer**:
+Open **Settings > Widgets** and find **Stall Timer**:
 
 - **Hide -:-- when not draining** (off by default). When on, a resource that is not falling shows nothing under the slider instead of `-:--`. Draining still shows `M:SS` / `0:00` / `9:59`. The choice is saved between games.
 
