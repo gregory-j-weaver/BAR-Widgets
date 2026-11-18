@@ -11,7 +11,8 @@ Each slider gets its own `M:SS` label, centered directly under the track:
 | `1:23` | That resource is falling, and storage will hit zero in 1 minute 23 seconds at the current drain. |
 | `0:00` | Storage is already empty while still draining. |
 | `9:59` | Time remaining is 10 minutes or more. |
-| `-:--` | The bar is not decreasing (income covers expense, or current went up/held this second). |
+| `-:--` | The bar is not decreasing (income covers expense, or current went up/held this second). Default. |
+| *(empty)* | Same as `-:--`, when **Hide -:-- when not draining** is on. |
 
 The labels use the same typeface, size, outline, and colors as the current-amount numbers drawn over the sliders in `gui_top_bar.lua`:
 
@@ -25,10 +26,16 @@ They refresh once per second.
 Every second the widget reads `Spring.GetTeamResources` for the local (or spectated) team:
 
 - Drain rate = expense − income
-- If drain is at or below a tiny epsilon, the bar is treated as not decreasing and the label is `-:--`
+- If drain is at or below a tiny epsilon, the bar is treated as not decreasing and the label is `-:--` (or empty if that setting is on)
 - Otherwise time = current / drain, capped at 9 minutes 59 seconds
 
 Display-only. It does not change sharing, conversion, or unit orders.
+
+## Settings
+
+Open **Settings > Custom** and find **Stall Timer**:
+
+- **Hide -:-- when not draining** (off by default). When on, a resource that is not falling shows nothing under the slider instead of `-:--`. Draining still shows `M:SS` / `0:00` / `9:59`. The choice is saved between games.
 
 ## Install
 

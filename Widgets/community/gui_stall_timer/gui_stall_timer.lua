@@ -3,7 +3,7 @@ local widget = widget ---@type Widget
 function widget:GetInfo()
 	return {
 		name = "Stall Timer",
-		desc = "Shows time-to-stall under the metal and energy sliders as M:SS. -:-- when the bar is not falling, 9:59 at ten minutes or more.",
+		desc = "Shows time-to-stall under the metal and energy sliders as M:SS. -:-- when the bar is not falling (or empty if that setting is on), 9:59 at ten minutes or more.",
 		author = "gregory-j-weaver",
 		date = "2026-11-11",
 		license = "GNU GPL v2 or later",
@@ -20,6 +20,20 @@ local UPDATE_INTERVAL = 1.0 -- seconds between samples, as requested
 local MAX_SECONDS = 9 * 60 + 59 -- 9:59; 10:00 and above clamp here
 local DRAIN_EPSILON = 0.05 -- ignore floating-point noise as "decreasing"
 local STALL_TEXT = "-:--"
+
+-- Settings > Custom > Stall Timer
+local config = {
+	hideIdlePlaceholder = false, -- true: empty label when not draining
+}
+
+local OPTION_SPECS = {
+	{
+		configVariable = "hideIdlePlaceholder",
+		name = "Hide -:-- when not draining",
+		description = "When a resource is not falling, leave the label empty instead of showing -:--.",
+		type = "bool",
+	},
+}
 
 -- Colors copied from gui_top_bar.drawResbarValue (the numbers over the sliders).
 local COLOR_METAL = { 0.95, 0.95, 0.95, 1 }
@@ -42,6 +56,7 @@ local DEFAULT_SKEW_TAN = math.tan(math.rad(20))
 local myTeamID = Spring.GetLocalTeamID()
 local font2
 local elapsed = 0
+local optionsRegistered = false
 local labels = {
 	metal = STALL_TEXT,
 	energy = STALL_TEXT,
@@ -58,6 +73,58 @@ local spGetTeamResources = Spring.GetTeamResources
 local spGetLocalTeamID = Spring.GetLocalTeamID
 local spIsGUIHidden = Spring.IsGUIHidden
 local spGetConfigFloat = Spring.GetConfigFloat
+local SampleResources
+
+--------------------------------------------------------------------------------
+-- Settings (Settings > Custom > Stall Timer)
+--------------------------------------------------------------------------------
+local function IdleText()
+	if config.hideIdlePlaceholder then
+		return ""
+	end
+	return STALL_TEXT
+end
+
+local function GetOptionId(spec)
+	return "stall_timer__" .. spec.configVariable
+end
+
+local function RegisterOptions()
+	if optionsRegistered then
+		return
+	end
+	if not (WG["options"] and WG["options"].addOptions) then
+		return
+	end
+	local list = {}
+	for _, spec in ipairs(OPTION_SPECS) do
+		list[#list + 1] = {
+			id = GetOptionId(spec),
+			widgetname = "Stall Timer",
+			name = spec.name,
+			description = spec.description,
+			type = spec.type,
+			value = config[spec.configVariable],
+			onchange = function(_, value)
+				config[spec.configVariable] = value
+				SampleResources()
+			end,
+		}
+	end
+	WG["options"].addOptions(list)
+	optionsRegistered = true
+end
+
+local function UnregisterOptions()
+	if not (WG["options"] and WG["options"].removeOptions) then
+		return
+	end
+	local ids = {}
+	for _, spec in ipairs(OPTION_SPECS) do
+		ids[#ids + 1] = GetOptionId(spec)
+	end
+	WG["options"].removeOptions(ids)
+end
 
 --------------------------------------------------------------------------------
 -- Time-to-stall
@@ -65,7 +132,7 @@ local spGetConfigFloat = Spring.GetConfigFloat
 -- Format seconds as M:SS. Anything 10:00 or longer becomes 9:59.
 local function FormatStallTime(seconds)
 	if not seconds or seconds < 0 then
-		return STALL_TEXT
+		return IdleText()
 	end
 	if seconds >= (MAX_SECONDS + 1) then
 		return "9:59"
@@ -76,11 +143,12 @@ local function FormatStallTime(seconds)
 	return string_format("%d:%02d", mins, secs)
 end
 
--- Decreasing means expense is beating income this sample. Otherwise -:--.
+-- Decreasing means expense is beating income this sample. Otherwise -:--
+-- (or empty when Hide -:-- when not draining is on).
 local function StallLabel(current, income, expense)
 	local drain = (expense or 0) - (income or 0)
 	if drain <= DRAIN_EPSILON then
-		return STALL_TEXT
+		return IdleText()
 	end
 	if not current or current <= 0 then
 		return "0:00"
@@ -88,18 +156,18 @@ local function StallLabel(current, income, expense)
 	return FormatStallTime(current / drain)
 end
 
-local function SampleResources()
+SampleResources = function()
 	myTeamID = spGetLocalTeamID()
 	if myTeamID == nil then
-		labels.metal = STALL_TEXT
-		labels.energy = STALL_TEXT
+		labels.metal = IdleText()
+		labels.energy = IdleText()
 		return
 	end
 
 	local function sample(resName)
 		local current, _, _, income, expense = spGetTeamResources(myTeamID, resName)
 		if current == nil then
-			labels[resName] = STALL_TEXT
+			labels[resName] = IdleText()
 			return
 		end
 		labels[resName] = StallLabel(current, income, expense)
@@ -210,6 +278,7 @@ function widget:Initialize()
 	if WG.fonts and WG.fonts.getFont then
 		font2 = WG.fonts.getFont(2)
 	end
+	RegisterOptions()
 	UpdateLayout()
 	SampleResources()
 end
@@ -223,12 +292,15 @@ end
 
 function widget:PlayerChanged()
 	myTeamID = spGetLocalTeamID()
-	labels.metal = STALL_TEXT
-	labels.energy = STALL_TEXT
+	labels.metal = IdleText()
+	labels.energy = IdleText()
 	SampleResources()
 end
 
 function widget:Update(dt)
+	if not optionsRegistered then
+		RegisterOptions()
+	end
 	elapsed = elapsed + (dt or 0)
 	if elapsed < UPDATE_INTERVAL then
 		return
@@ -259,7 +331,13 @@ function widget:DrawScreen()
 
 	local function drawLabel(res, color)
 		local L = layout[res]
-		local text = labels[res] or STALL_TEXT
+		local text = labels[res]
+		if text == nil then
+			text = IdleText()
+		end
+		if text == "" then
+			return
+		end
 		if font2 then
 			font2:Begin()
 			font2:SetTextColor(color[1], color[2], color[3], color[4])
@@ -277,6 +355,20 @@ function widget:DrawScreen()
 	drawLabel("energy", COLOR_ENERGY)
 end
 
+function widget:GetConfigData()
+	return {
+		hideIdlePlaceholder = config.hideIdlePlaceholder,
+	}
+end
+
+function widget:SetConfigData(data)
+	if data and type(data.hideIdlePlaceholder) == "boolean" then
+		config.hideIdlePlaceholder = data.hideIdlePlaceholder
+	end
+end
+
 function widget:Shutdown()
+	UnregisterOptions()
+	optionsRegistered = false
 	font2 = nil
 end
